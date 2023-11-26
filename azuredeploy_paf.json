@@ -1,0 +1,131 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "location": {
+      "defaultValue": "[resourceGroup().location]",
+      "type": "string",
+      "metadata": {
+        "description": "Azure location (region)"
+      }
+    },
+    "tablePrefix": {
+      "defaultValue": "paftable",
+      "type": "string",
+      "metadata": {
+        "description": "Azure Storage Account table prefix"
+      }
+    },
+    "storagePrefix": {
+      "defaultValue": "pafstorage",
+      "type": "string",
+      "metadata": {
+        "description": "Azure Storage Account prefix"
+      }
+    },
+    "packageUrl": {
+      "type": "string",
+      "metadata": {
+        "description": "Package URL"
+      }
+    }
+  },
+  "variables": {
+    "functionName": "[concat('paf', uniqueString(resourceGroup().id))]",
+    "tableName": "[concat(parameters('tablePrefix'), uniqueString(resourceGroup().id))]",
+    "storageName": "[concat(parameters('storagePrefix'), uniqueString(resourceGroup().id))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Storage/storageAccounts",
+      "apiVersion": "2022-09-01",
+      "name": "[variables('storageName')]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "Standard_RAGRS",
+        "tier": "Standard"
+      },
+      "kind": "StorageV2",
+      "properties": {
+        "allowCrossTenantReplication": false,
+        "minimumTlsVersion": "TLS1_2",
+        "allowBlobPublicAccess": false,
+        "networkAcls": {
+          "bypass": "AzureServices",
+          "virtualNetworkRules": [],
+          "ipRules": [],
+          "defaultAction": "Allow"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/tableServices",
+      "apiVersion": "2022-09-01",
+      "name": "[concat(variables('storageName'), '/default')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/tableServices/tables",
+      "apiVersion": "2023-01-01",
+      "name": "[concat(variables('storageName'), '/default/', variables('tableName'))]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts/tableServices', variables('storageName'), 'default')]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Web/sites",
+      "apiVersion": "2022-09-01",
+      "name": "[variables('functionName')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Insights/components', variables('functionName'))]"
+      ],
+      "location": "[parameters('location')]",
+      "kind": "functionapp,linux",
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "properties": {
+        "enabled": true,
+        "reserved": true,
+        "alwaysOn": true,
+        "httpsOnly": true,
+        "siteConfig": {
+          "linuxFxVersion": "PYTHON|3.10"
+        }
+      },
+      "resources": [
+        {
+          "apiVersion": "2022-09-01",
+          "type": "config",
+          "name": "appsettings",
+          "dependsOn": [
+            "[concat('Microsoft.Web/sites/', variables('functionName'))]",
+            "[resourceId('Microsoft.Storage/storageAccounts', variables('storageName'))]"
+          ],
+          "properties": {
+            "FUNCTIONS_EXTENSION_VERSION": "~4",
+            "FUNCTIONS_WORKER_RUNTIME": "python",
+            "APPINSIGHTS_INSTRUMENTATIONKEY": "[reference(resourceId('Microsoft.insights/components', variables('functionName')), '2020-02-02').InstrumentationKey]",
+            "AzureWebJobsStorage": "[concat('DefaultEndpointsProtocol=https;AccountName=', variables('storageName'),';AccountKey=', listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('storageName')), '2022-09-01').keys[0].value, ';EndpointSuffix=core.windows.net')]",
+            "table_name": "[variables('tableName')]",
+            "WEBSITE_RUN_FROM_PACKAGE": "[parameters('packageUrl')]"
+          }
+        }
+      ]
+    },
+    {
+      "type": "Microsoft.Insights/components",
+      "apiVersion": "2020-02-02",
+      "name": "[variables('functionName')]",
+      "location": "[parameters('location')]",
+      "kind": "web",
+      "properties": {
+        "Application_Type": "web",
+        "ApplicationId": "[variables('functionName')]"
+      }
+    }
+  ]
+}
