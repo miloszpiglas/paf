@@ -24,6 +24,7 @@
       }
     },
     "packageUrl": {
+      "defaultValue": "https://github.com/miloszpiglas/paf/raw/main/paf.zip",
       "type": "string",
       "metadata": {
         "description": "Package URL"
